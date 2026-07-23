@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+
+class ExistingStudentController extends Controller
+{
+    public function index()
+    {
+        return view('students.existing');
+    }
+
+    public function getClasses(Request $request)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            $level = $request->get('level');
+            
+            $query = DB::table('class');
+            
+            if (!empty($level)) {
+                $query->where('level', $level);
+            }
+            
+            $classes = $query->select('class', 'level')
+                ->orderBy('level', 'asc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => $classes
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function store(Request $request)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'reg' => 'required|string|max:50',
+                'sname' => 'required|string|max:255',
+                'address' => 'nullable|string|max:255',
+                'dob' => 'nullable|date',
+                'gender' => 'nullable|string',
+                'religion' => 'nullable|string|max:100',
+                'national' => 'nullable|string|max:100',
+                'school' => 'nullable|string|max:255',
+                'shehia' => 'nullable|string|max:100',
+                'ward' => 'nullable|string|max:100',
+                'level' => 'nullable|string|max:50',
+                'class' => 'nullable|string|max:50',
+                'pgname' => 'nullable|string|max:255',
+                'pgaddress' => 'nullable|string|max:255',
+                'pgmob' => 'nullable|string|max:30',
+                'relation' => 'nullable|string|max:50',
+                'spname' => 'nullable|string|max:255',
+                'spaddress' => 'nullable|string|max:255',
+                'spmob' => 'nullable|string|max:30',
+                'accupation' => 'nullable|string|max:100'
+            ]);
+
+            $year = date('Y');
+            $dt = date('Y-m-d');
+            
+            // Hash password
+            $password = Hash::make('4555');
+
+            // Check if registration number already exists
+            $existing = DB::table('student')->where('reg', $validated['reg'])->first();
+            
+            if ($existing) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Registration number already exists! Please use a different number.'
+                ], 400);
+            }
+
+            // Insert into student table
+            DB::table('student')->insert([
+                'reg' => $validated['reg'],
+                'sname' => $validated['sname'],
+                'address' => $validated['address'] ?? '',
+                'dob' => $validated['dob'] ?? '',
+                'gender' => $validated['gender'] ?? '',
+                'religion' => $validated['religion'] ?? '',
+                'national' => $validated['national'] ?? '',
+                'school' => $validated['school'] ?? '',
+                'pgname' => $validated['pgname'] ?? '',
+                'pgaddress' => $validated['pgaddress'] ?? '',
+                'pgmob' => $validated['pgmob'] ?? '',
+                'relation' => $validated['relation'] ?? '',
+                'spname' => $validated['spname'] ?? '',
+                'spaddress' => $validated['spaddress'] ?? '',
+                'spmob' => $validated['spmob'] ?? '',
+                'accupation' => $validated['accupation'] ?? '',
+                'level' => $validated['level'] ?? '',
+                'class' => $validated['class'] ?? '',
+                'shehia' => $validated['shehia'] ?? '',
+                'ward' => $validated['ward'] ?? '',
+                'date' => $dt,
+                'year' => $year,
+                'password' => $password,
+                'status' => 'Applicant'
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Existing student registered successfully! Registration Number: ' . $validated['reg']
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+}

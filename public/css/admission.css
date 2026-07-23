@@ -1,0 +1,154 @@
+/* ========================================
+   ADMISSION - Custom CSS
+   ======================================== */
+
+.admission-hero {
+    background: linear-gradient(135deg, #B8860B, #D9A52A, #F0C040);
+    padding: 80px 0;
+    color: white;
+    text-align: center;
+}
+
+.admission-hero h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    margin-bottom: 15px;
+    text-shadow: 2px 4px 10px rgba(0,0,0,0.2);
+}
+
+.admission-hero p {
+    font-size: 1.3rem;
+    opacity: 0.9;
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.admission-form-wrapper {
+    padding: 60px 0;
+    background: #f8f9fa;
+}
+
+.admission-form {
+    background: #ffffff;
+    padding: 45px 50px;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+}
+
+.admission-form .form-section {
+    border-bottom: 2px solid #f0f0f0;
+    padding-bottom: 25px;
+    margin-bottom: 25px;
+}
+
+.admission-form .form-section:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.admission-form .form-section h5 {
+    color: #B8860B;
+    font-weight: 700;
+    font-size: 1.3rem;
+    margin-bottom: 20px;
+}
+
+.admission-form .form-label {
+    font-weight: 600;
+    color: #444;
+    font-size: 0.95rem;
+}
+
+.admission-form .form-control {
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    padding: 12px 16px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.admission-form .form-control:focus {
+    border-color: #D9A52A;
+    box-shadow: 0 0 0 4px rgba(217, 165, 42, 0.15);
+}
+
+.admission-form .form-select {
+    border: 2px solid #e9ecef;
+    border-radius: 10px;
+    padding: 12px 16px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.admission-form .form-select:focus {
+    border-color: #D9A52A;
+    box-shadow: 0 0 0 4px rgba(217, 165, 42, 0.15);
+}
+
+.admission-form .btn-submit {
+    background: linear-gradient(135deg, #D9A52A, #B8860B);
+    color: white;
+    border: none;
+    padding: 14px 50px;
+    border-radius: 50px;
+    font-weight: 700;
+    font-size: 1.1rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    cursor: pointer;
+}
+
+.admission-form .btn-submit:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 30px rgba(184, 134, 11, 0.35);
+    color: white;
+}
+
+.admission-form .btn-submit:active {
+    transform: translateY(0);
+}
+
+.admission-form .text-danger {
+    color: #dc3545 !important;
+}
+
+.admission-form .invalid-feedback {
+    font-size: 0.85rem;
+    margin-top: 5px;
+}
+
+@media (max-width: 768px) {
+    .admission-hero h1 {
+        font-size: 2.5rem;
+    }
+    
+    .admission-hero p {
+        font-size: 1rem;
+    }
+    
+    .admission-form {
+        padding: 25px 20px;
+    }
+    
+    .admission-form .form-section h5 {
+        font-size: 1.1rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .admission-hero {
+        padding: 50px 0;
+    }
+    
+    .admission-hero h1 {
+        font-size: 2rem;
+    }
+    
+    .admission-form {
+        padding: 20px 15px;
+    }
+    
+    .admission-form .btn-submit {
+        padding: 12px 35px;
+        font-size: 1rem;
+        width: 100%;
+    }
+}
