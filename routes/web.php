@@ -283,31 +283,15 @@ Route::post('/api/zra-pay', function(Request $request) {
 Route::get('/api/attendance-list', function(\Illuminate\Http\Request $request) {
     $date = $request->date ?? date('Y-m-d');
     $year = date('Y');
-    
-    $classes = DB::table('enrollment')
-        ->select('class', DB::raw('COUNT(reg) as total'))
-        ->where('year', $year)
-        ->groupBy('class')
-        ->orderBy('class')
-        ->get();
-    
-    $attendance = DB::table('attendance')
-        ->select('class', 'status', DB::raw('COUNT(*) as count'))
-        ->where('date', $date)
-        ->groupBy('class', 'status')
-        ->get();
-    
+    $classes = DB::table('enrollment')->select('class', DB::raw('COUNT(reg) as total'))->where('year', $year)->groupBy('class')->orderBy('class')->get();
+    $attendance = DB::table('attendance')->select('class', 'status', DB::raw('COUNT(*) as count'))->where('date', $date)->groupBy('class', 'status')->get();
     $attMap = [];
-    foreach ($attendance as $a) {
-        $attMap[$a->class][$a->status] = $a->count;
-    }
-    
+    foreach ($attendance as $a) { $attMap[$a->class][$a->status] = $a->count; }
     foreach ($classes as $c) {
         $c->present = $attMap[$c->class]['Present'] ?? 0;
         $c->absent = $attMap[$c->class]['Absent'] ?? 0;
         $c->reason = $attMap[$c->class]['Reason'] ?? 0;
     }
-    
     return response()->json(['success' => true, 'data' => $classes]);
 });
 
@@ -316,71 +300,95 @@ Route::get('/api/class-list-dropdown', function() {
     return response()->json(['success' => true, 'data' => $classes]);
 });
 
-// ===== REPLACED ROUTE: /api/class-results (PIVOT STYLE) =====
+// ===== CLASS RESULTS (PIVOT - kila somo mara moja tu) =====
 Route::get('/api/class-results', function(\Illuminate\Http\Request $request) {
     $class = $request->class;
     $examtp = $request->examtp;
     $acyear = $request->acyear;
     
-    // Get all subjects for this class
     $subjects = DB::table('matokeo')
         ->where('class', $class)
         ->where('examtp', $examtp)
         ->where('acyear', $acyear)
-        ->select('subject', 'code')
-        ->distinct()
-        ->orderBy('code')
-        ->pluck('subject');
+        ->select('subject')
+        ->groupBy('subject')
+        ->orderBy('subject')
+        ->pluck('subject')
+        ->toArray();
     
-    // Build pivot query
+    $subjects = array_values(array_unique($subjects));
+    
     $query = DB::table('matokeo as m')
         ->join('student as s', 's.reg', '=', 'm.reg')
         ->where('m.class', $class)
         ->where('m.examtp', $examtp)
         ->where('m.acyear', $acyear);
     
-    // Dynamic subject columns
     $selectFields = ['m.reg', 's.sname as name'];
     foreach ($subjects as $subject) {
         $subjectAlias = strtoupper(str_replace(' ', '_', $subject));
         $selectFields[] = DB::raw("MAX(CASE WHEN m.subject = '{$subject}' THEN m.marks END) AS {$subjectAlias}");
-        $selectFields[] = DB::raw("MAX(CASE WHEN m.subject = '{$subject}' THEN m.grade END) AS {$subjectAlias}_GRADE");
-        $selectFields[] = DB::raw("MAX(CASE WHEN m.subject = '{$subject}' THEN m.point END) AS {$subjectAlias}_POINT");
     }
     
-    // Average calculation
     $avgFormula = [];
     foreach ($subjects as $subject) {
-        $subjectAlias = strtoupper(str_replace(' ', '_', $subject));
         $avgFormula[] = "COALESCE(MAX(CASE WHEN m.subject = '{$subject}' THEN m.marks END), 0)";
     }
     $avgCalculation = implode(' + ', $avgFormula);
-    $selectFields[] = DB::raw("ROUND(($avgCalculation) / " . count($subjects) . ", 2) AS AVERAGE");
+    $selectFields[] = DB::raw("ROUND(($avgCalculation) / " . max(count($subjects), 1) . ", 2) AS AVERAGE");
     $selectFields[] = DB::raw("SUM(m.marks) AS TOTAL");
     
-    $results = $query
-        ->select($selectFields)
-        ->groupBy('m.reg', 's.sname')
-        ->orderBy('AVERAGE', 'DESC')
-        ->get();
+    $results = $query->select($selectFields)->groupBy('m.reg', 's.sname')->orderBy('AVERAGE', 'DESC')->get();
     
-    // Calculate positions
     $results = $results->map(function($item, $index) {
         $item->position = $index + 1;
-        $item->grade = $item->AVERAGE >= 81 ? 'A' : 
-                       ($item->AVERAGE >= 61 ? 'B' : 
-                       ($item->AVERAGE >= 45 ? 'C' : 
-                       ($item->AVERAGE >= 35 ? 'D' : 'F')));
+        $avg = $item->AVERAGE;
+        $item->grade = $avg >= 81 ? 'A' : ($avg >= 61 ? 'B' : ($avg >= 45 ? 'C' : ($avg >= 35 ? 'D' : 'F')));
         return $item;
     });
     
-    return response()->json([
-        'success' => true, 
-        'data' => $results,
-        'subjects' => $subjects
-    ]);
+    return response()->json(['success' => true, 'data' => $results, 'subjects' => $subjects]);
 });
-// ===== END REPLACED ROUTE =====
+
+// ===== STUDENT EXAMINATIONS (PIVOT - kila somo mara moja tu) =====
+Route::get('/api/student/examinations', function(\Illuminate\Http\Request $request) {
+    $reg = $request->reg;
+    
+    $subjects = DB::table('matokeo')
+        ->where('reg', $reg)
+        ->when($request->year, fn($q) => $q->where('acyear', $request->year))
+        ->when($request->exam_type, fn($q) => $q->where('examtp', $request->exam_type))
+        ->select('subject')
+        ->groupBy('subject')
+        ->orderBy('subject')
+        ->pluck('subject')
+        ->toArray();
+    
+    $subjects = array_values(array_unique($subjects));
+    
+    $query = DB::table('matokeo as m')
+        ->where('m.reg', $reg)
+        ->when($request->year, fn($q) => $q->where('m.acyear', $request->year))
+        ->when($request->exam_type, fn($q) => $q->where('m.examtp', $request->exam_type));
+    
+    $selectFields = ['m.reg', 'm.examtp', 'm.acyear', 'm.class'];
+    foreach ($subjects as $subject) {
+        $subjectAlias = strtoupper(str_replace(' ', '_', $subject));
+        $selectFields[] = DB::raw("MAX(CASE WHEN m.subject = '{$subject}' THEN m.marks END) AS {$subjectAlias}");
+    }
+    
+    $avgFormula = [];
+    foreach ($subjects as $subject) {
+        $avgFormula[] = "COALESCE(MAX(CASE WHEN m.subject = '{$subject}' THEN m.marks END), 0)";
+    }
+    $avgCalculation = implode(' + ', $avgFormula);
+    $selectFields[] = DB::raw("ROUND(($avgCalculation) / " . max(count($subjects), 1) . ", 2) AS AVERAGE");
+    $selectFields[] = DB::raw("SUM(m.marks) AS TOTAL");
+    
+    $results = $query->select($selectFields)->groupBy('m.reg', 'm.examtp', 'm.acyear', 'm.class')->orderBy('m.acyear', 'desc')->get();
+    
+    return response()->json(['success' => true, 'data' => ['results' => $results, 'subjects' => $subjects]]);
+});
 
 Route::get('/api/student-results-summary', function(\Illuminate\Http\Request $request) {
     $data = DB::table('stream_pos')
@@ -399,24 +407,20 @@ Route::get('/api/print-report-card', function(\Illuminate\Http\Request $request)
     $exam = $request->exam;
     $year = $request->year;
     $class = $request->class;
-    
     $student = DB::table('student')->where('reg', $reg)->first();
     $enrollment = DB::table('enrollment')->where('reg', $reg)->where('class', $class)->where('year', $year)->first();
     $results = DB::table('matokeo')->where('reg', $reg)->where('examtp', $exam)->where('acyear', $year)->orderBy('marks', 'desc')->get();
     $stream = DB::table('stream_pos')->where('reg', $reg)->where('term', $exam)->where('year', $year)->first();
     $totalStudents = DB::table('enrollment')->where('class', $class)->where('year', $year)->count();
     $present = DB::table('attendance')->where('reg', $reg)->where('class', $class)->where('year', $year)->where('status', 'Present')->count();
-    
     $totalMarks = 0; $subjects = 0;
     foreach ($results as $r) { $totalMarks += $r->marks; $subjects++; }
     $avg = $subjects > 0 ? round($totalMarks / $subjects, 2) : 0;
-    
     if ($avg >= 81) $grade = 'A';
     elseif ($avg >= 61) $grade = 'B';
     elseif ($avg >= 45) $grade = 'C';
     elseif ($avg >= 35) $grade = 'D';
     else $grade = 'F';
-    
     $html = '<!DOCTYPE html><html><head><title>Report Card</title>';
     $html .= '<style>body{font-family:Arial;padding:20px}.report{max-width:800px;margin:0 auto;border:1px solid #000;padding:15px}.header{text-align:center}.header img{width:100%;max-height:150px}.info-table{width:100%;border-collapse:collapse;margin:10px 0}.info-table td{border:1px solid #000;padding:5px}.marks-table{width:100%;border-collapse:collapse;margin:10px 0}.marks-table th,.marks-table td{border:1px solid #000;padding:5px;font-size:12px}.marks-table th{background:#C0C0C0}.summary{width:100%;border-collapse:collapse;margin:10px 0}.summary td{border:1px solid #000;padding:5px}.grade-table{width:100%;border-collapse:collapse;margin:10px 0;font-size:11px}.grade-table th,.grade-table td{border:1px solid #000;padding:3px;text-align:center}.grade-table th{background:#CCC}.signatures{width:100%;margin-top:20px}.signatures td{width:50%;text-align:center;padding:20px}@media print{body{margin:0;padding:0}}</style></head><body>';
     $html .= '<div class="report">';
@@ -426,7 +430,6 @@ Route::get('/api/print-report-card', function(\Illuminate\Http\Request $request)
     $html .= '<tr><td><b>CLASS:</b> '.$class.'</td><td><b>LEVEL:</b> '.($enrollment->level ?? $student->level ?? '').'</td><td><b>ROLL:</b> '.$totalStudents.'</td></tr>';
     $html .= '</table>';
     $html .= '<table class="marks-table"><tr><th>SUBJECT</th><th>MARKS</th><th>GRADE</th><th>POSITION</th><th>REMARKS</th></tr>';
-    
     foreach ($results as $r) {
         $g = $r->marks >= 81 ? 'A' : ($r->marks >= 61 ? 'B' : ($r->marks >= 45 ? 'C' : ($r->marks >= 35 ? 'D' : 'F')));
         $remark = $r->marks >= 81 ? 'Excellent' : ($r->marks >= 61 ? 'Very Good' : ($r->marks >= 45 ? 'Satisfactory' : ($r->marks >= 35 ? 'Unsatisfactory' : 'Failure')));
@@ -437,60 +440,29 @@ Route::get('/api/print-report-card', function(\Illuminate\Http\Request $request)
     $html .= '<table class="grade-table"><tr><th>Grade</th><th>A</th><th>B</th><th>C</th><th>D</th><th>F</th></tr><tr><td>Score</td><td>81-100</td><td>61-80</td><td>45-60</td><td>35-44</td><td>0-34</td></tr><tr><td>Remark</td><td>Excellent</td><td>Very Good</td><td>Satisfactory</td><td>Unsatisfactory</td><td>Failure</td></tr></table>';
     $html .= '<table class="signatures"><tr><td>CLASS TEACHER<br>SIGN...............</td><td>ACADEMIC OFFICER<br>SIGN...............</td></tr></table>';
     $html .= '</div><script>window.onload=function(){window.print();setTimeout(function(){window.close();},1000)}<\/script></body></html>';
-    
     return $html;
 });
 
 Route::get('/api/class-list-data', function(\Illuminate\Http\Request $request) {
-    $data = DB::table('student')
-        ->select('class', DB::raw('COUNT(reg) as total'))
-        ->where('class', '!=', 'Unknown')
-        ->where('year', $request->year)
-        ->groupBy('class')
-        ->orderBy('class')
-        ->get();
+    $data = DB::table('student')->select('class', DB::raw('COUNT(reg) as total'))->where('class', '!=', 'Unknown')->where('year', $request->year)->groupBy('class')->orderBy('class')->get();
     return response()->json(['success' => true, 'data' => $data]);
 });
 
 Route::get('/api/revenue-summary', function(\Illuminate\Http\Request $request) {
     $year = $request->year;
-    $data = DB::table('payment')
-        ->join('enrollment', 'payment.reg', '=', 'enrollment.reg')
-        ->where('payment.year', $year)
-        ->where('enrollment.year', $year)
-        ->select('payment.category', DB::raw('COUNT(payment.reg) as student'), DB::raw('SUM(payment.amount) as amount'), DB::raw('SUM(payment.balance) as balance'))
-        ->groupBy('payment.category')
-        ->get();
+    $data = DB::table('payment')->join('enrollment', 'payment.reg', '=', 'enrollment.reg')->where('payment.year', $year)->where('enrollment.year', $year)->select('payment.category', DB::raw('COUNT(payment.reg) as student'), DB::raw('SUM(payment.amount) as amount'), DB::raw('SUM(payment.balance) as balance'))->groupBy('payment.category')->get();
     return response()->json(['success' => true, 'data' => $data]);
 });
 
 Route::get('/api/revenue-statement', function(\Illuminate\Http\Request $request) {
-    $fee = $request->fee;
-    $year = $request->year;
-    $data = DB::table('payment')
-        ->join('enrollment', 'payment.reg', '=', 'enrollment.reg')
-        ->where('payment.year', $year)
-        ->where('enrollment.year', $year)
-        ->where('payment.category', 'like', "%{$fee}%")
-        ->select('enrollment.reg', 'enrollment.sname', 'enrollment.level', 'enrollment.class', 'payment.year', 'payment.category', 'payment.amount', 'payment.balance')
-        ->orderBy('enrollment.class')
-        ->orderBy('enrollment.sname')
-        ->get();
+    $fee = $request->fee; $year = $request->year;
+    $data = DB::table('payment')->join('enrollment', 'payment.reg', '=', 'enrollment.reg')->where('payment.year', $year)->where('enrollment.year', $year)->where('payment.category', 'like', "%{$fee}%")->select('enrollment.reg', 'enrollment.sname', 'enrollment.level', 'enrollment.class', 'payment.year', 'payment.category', 'payment.amount', 'payment.balance')->orderBy('enrollment.class')->orderBy('enrollment.sname')->get();
     return response()->json(['success' => true, 'data' => $data]);
 });
 
 Route::get('/api/debtors-statement', function(\Illuminate\Http\Request $request) {
-    $fee = $request->fee;
-    $year = $request->year;
-    $data = DB::table('payment')
-        ->join('enrollment', 'payment.reg', '=', 'enrollment.reg')
-        ->where('payment.year', $year)
-        ->where('enrollment.year', $year)
-        ->where('payment.balance', '!=', '0')
-        ->where('payment.category', 'like', "%{$fee}%")
-        ->select('enrollment.reg', 'enrollment.sname', 'enrollment.level', 'enrollment.class', 'payment.year', 'payment.category', 'payment.amount', 'payment.balance')
-        ->orderBy('enrollment.class')->orderBy('enrollment.sname')
-        ->get();
+    $fee = $request->fee; $year = $request->year;
+    $data = DB::table('payment')->join('enrollment', 'payment.reg', '=', 'enrollment.reg')->where('payment.year', $year)->where('enrollment.year', $year)->where('payment.balance', '!=', '0')->where('payment.category', 'like', "%{$fee}%")->select('enrollment.reg', 'enrollment.sname', 'enrollment.level', 'enrollment.class', 'payment.year', 'payment.category', 'payment.amount', 'payment.balance')->orderBy('enrollment.class')->orderBy('enrollment.sname')->get();
     return response()->json(['success' => true, 'data' => $data]);
 });
 
@@ -502,15 +474,10 @@ Route::get('/api/income-expenses', function(\Illuminate\Http\Request $request) {
 });
 
 Route::get('/api/tax-return', function(\Illuminate\Http\Request $request) {
-    $dts = $request->dts;
-    $dtf = $request->dtf;
+    $dts = $request->dts; $dtf = $request->dtf;
     $query = DB::table('zra_taxes');
-    if ($dts && $dtf) {
-        $query->whereBetween(DB::raw('DATE(issue_date)'), [$dts, $dtf]);
-    } else {
-        $mnt = date('Y-m');
-        $query->where('issue_date', 'like', "%{$mnt}%");
-    }
+    if ($dts && $dtf) { $query->whereBetween(DB::raw('DATE(issue_date)'), [$dts, $dtf]); }
+    else { $mnt = date('Y-m'); $query->where('issue_date', 'like', "%{$mnt}%"); }
     $data = $query->orderBy('issue_date', 'desc')->get();
     return response()->json(['success' => true, 'data' => $data]);
 });
@@ -523,9 +490,7 @@ Route::get('/api/dashboard-revenue', function() {
 Route::post('/api/change-password', function(\Illuminate\Http\Request $request) {
     $user = Auth::user();
     $password = $request->password;
-    if (strlen($password) < 6) {
-        return response()->json(['success' => false, 'message' => 'Password must be at least 6 characters']);
-    }
+    if (strlen($password) < 6) { return response()->json(['success' => false, 'message' => 'Password must be at least 6 characters']); }
     DB::table('staff')->where('id', $user->id)->update(['password' => Hash::make($password)]);
     return response()->json(['success' => true, 'message' => 'Password changed successfully!']);
 });
@@ -538,14 +503,16 @@ Route::get('/change-password', function() {
 Route::post('/api/change-password', function(\Illuminate\Http\Request $request) {
     $user = Auth::user();
     $password = $request->password;
-    if (strlen($password) < 6) {
-        return response()->json(['success' => false, 'message' => 'Password must be at least 6 characters']);
-    }
+    if (strlen($password) < 6) { return response()->json(['success' => false, 'message' => 'Password must be at least 6 characters']); }
     DB::table('staff')->where('id', $user->id)->update(['password' => Hash::make($password)]);
     return response()->json(['success' => true, 'message' => 'Password changed successfully!']);
 });
 
-Route::get('/api/dashboard-stats', function() {    $students = DB::table('enrollment')->where('year', date('Y'))->count();    $attendance = DB::table('attendance')->count();    return response()->json(['success' => true, 'students' => $students, 'attendance' => $attendance]);});
+Route::get('/api/dashboard-stats', function() {
+    $students = DB::table('enrollment')->where('year', date('Y'))->count();
+    $attendance = DB::table('attendance')->count();
+    return response()->json(['success' => true, 'students' => $students, 'attendance' => $attendance]);
+});
 
 Route::get('/api/student/payment-years', function(\Illuminate\Http\Request $request) {
     $years = DB::table('payment')->where('reg', $request->reg)->select('year')->distinct()->orderBy('year','desc')->pluck('year');
@@ -563,14 +530,6 @@ Route::get('/api/student/exam-filters', function(\Illuminate\Http\Request $reque
     $years = DB::table('matokeo')->where('reg', $request->reg)->select('acyear')->distinct()->orderBy('acyear','desc')->pluck('acyear');
     $types = DB::table('matokeo')->where('reg', $request->reg)->select('examtp')->distinct()->pluck('examtp');
     return response()->json(['success' => true, 'data' => ['years' => $years, 'types' => $types]]);
-});
-
-Route::get('/api/student/examinations', function(\Illuminate\Http\Request $request) {
-    $results = DB::table('matokeo')->where('reg', $request->reg)
-        ->when($request->year, fn($q) => $q->where('acyear', $request->year))
-        ->when($request->exam_type, fn($q) => $q->where('examtp', $request->exam_type))
-        ->orderBy('acyear','desc')->get();
-    return response()->json(['success' => true, 'data' => ['results' => $results]]);
 });
 
 Route::get('/api/student/attendance-years', function(\Illuminate\Http\Request $request) {
